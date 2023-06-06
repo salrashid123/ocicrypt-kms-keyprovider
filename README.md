@@ -112,7 +112,8 @@ crane manifest  localhost:5000/app:decrypted | jq '.'
 ```
 
 ```json
-$ crane manifest --insecure localhost:5000/app:encrypted | jq '.'
+crane manifest --insecure localhost:5000/app:encrypted | jq '.'
+
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
