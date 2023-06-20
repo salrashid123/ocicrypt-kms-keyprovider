@@ -32,172 +32,20 @@ Anyway, this repo shows basic OCI container encryption and then an example with 
 
 ---
 
-## Setup Baseline
+### Setup
 
-- Install [skopeo](https://github.com/containers/skopeo/blob/main/install.md), [crane](https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md), docker
+Showing how this works involves a number of steps so its not that much of a quickstart but once its setup, you can skip to the "encrypt/decrypt" section below.
 
-```bash
-$ skopeo --version
-skopeo version 1.12.1
+install
 
-$ crane version
-v0.14.0
-```
+- [skopeo](https://github.com/containers/skopeo/blob/main/install.md)
+- [crane](https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md)
+- docker
 
-- Start local registry
-```bash
-cd example
 
-docker run  -p 5000:5000 -v `pwd`/certs:/certs \
-  -e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/localhost.crt \
-  -e REGISTRY_HTTP_TLS_KEY=/certs/localhost.key  docker.io/registry:2
-```
+#### Setup Binary OCI KMS provider
 
-- Build app
-
-Save to local docker-daemon
-
-```bash
-docker build -t app:server .
-```
-
-- Copy image without encryption to registry
-
-```bash
-ce example/
-export SSL_CERT_FILE=certs/tls-ca-chain.pem
-
-skopeo copy   docker-daemon:app:server  docker://localhost:5000/app:server
-
-skopeo inspect  docker://localhost:5000/app:server
-
-crane manifest localhost:5000/app:server | jq '.'
-```
-
-- (optionally) create new certs 
-
-Or you can just use the ones here
-
-```bash
-openssl genrsa -out certs/private.pem 2048
-openssl rsa -in certs/private.pem -pubout -out certs/public.pem
-openssl genrsa -out certs/wrongkey.pem 2048
-```
-
-- Test Encryption (all layers)
-
-The following will encrypt all the layers using a local RSA key
-
-```bash
-export SSL_CERT_FILE=certs/tls-ca-chain.pem
-
-skopeo copy  \
-  --encryption-key jwe:./certs/public.pem docker-daemon:app:server docker://localhost:5000/app:encrypted
-
-# inspect
-crane manifest localhost:5000/app:encrypted | jq '.'
-
-# load with incorrect key
-## this will show "no suitable key unwrapper found or none of the private keys could be used for decryption"
-skopeo copy \
-  --decryption-key certs/wrongkey.pem docker://localhost:5000/app:encrypted docker://localhost:5000/app:decrypted
-
-# load with correct key
-skopeo copy \
-  --decryption-key certs/private.pem docker://localhost:5000/app:encrypted docker://localhost:5000/app:decrypted
-
-crane manifest localhost:5000/app:encrypted | jq '.'
-
-crane manifest  localhost:5000/app:decrypted | jq '.'
-```
-
-```json
-crane manifest --insecure localhost:5000/app:encrypted | jq '.'
-
-{
-  "schemaVersion": 2,
-  "mediaType": "application/vnd.oci.image.manifest.v1+json",
-  "config": {
-    "mediaType": "application/vnd.oci.image.config.v1+json",
-    "digest": "sha256:aa74d72db5dfd6e342f0a9cd5f0f1da0dd98ef82f98f82442dcd1e65ce138bef",
-    "size": 2479
-  },
-  "layers": [
-    {
-      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip+encrypted",
-      "digest": "sha256:39ae3809136d259dce6d433875ca3d9b6adf0482cbd2bb376ac2ac594d97bc29",
-      "size": 87117,
-      "annotations": {
-        "org.opencontainers.image.enc.keys.jwe": "eyJwcm90ZWN0ZWQiOiJleUpoYkdjaU9pSlNVMEV0VDBGRlVDSXNJbVZ1WXlJNklrRXlOVFpIUTAwaWZRIiwiZW5jcnlwdGVkX2tleSI6ImNWaXVPZDI3VE5selhOS0dxdHFnNFkxWHhtY3FkOWVMWXY3c3pJYi1NSnpxREoxcVkybXdRbU85RXJwNWVtWk41VWJDd3Y3QzFNaGNjaXBuSUt6aXRaOHNYMVZkR2dmWnYxclJLLTZySE92NXlUVjh5STNtSUtoc1lEZi16X1c1YlhpZTU0Nm1wWWlGVUQxcU1wSU52V3QwRWZDRy1YYXd6UVNKbXFYN3FEUlhvV2d4YjVwOHcxaER4V0RGVzBMX25MV0F5NUI4a3JoRTN5TGxzdWZ5a1hOdUlmNDZDbjZMSUI4Q25zaFR1MGRsV2V2T0VkSHg5ZDBaTjk1b1VxSXBzdWRZdGRZOVpPWC1aWkNRUkJOX1ZaR3loY1JkSlkyQlpGaW5CTjFtS2poX0wwRFJGMU9UOHhNcHRmMGI4OFNsMGpYZ3FpRnhKODNYTTRyYThTZTRPZyIsIml2IjoiaVRFWlJ1Mks5YjVQSm5GNiIsImNpcGhlcnRleHQiOiJPWndpU1ZGUnBhQmNNNjVaV3JsRmZBUEFycmV2Vi1xdko2Mlh1djhxVFdyS0oyNGhVUVUzR3NQei13STYzcUVGRS1WQkRyQTd1R2JMQjFTUUY1RTZmRzlERDg3cG5NZXUxekFJaTdWUWNJbFUyWnQxOGpoWU43YWhEaGFmaEx5a2h4X3Y5TjN1emw3SHMtS1hMT2w0eTNOX3FtRXpVT0U5SWJCNW1ZNlpaYjV2dWNUam8ycWdnNXFYSXl2bkQxXzEzdjZYMW4zZUROdjBpdVhpVnc2aVJXTjNDazJDUXhKMDV2bWoxNHo4ODJUSWpubVp2LUk4SllPcVNkYjlYUTFpbnciLCJ0YWciOiI3TzB5cGcwMEFUVm05dURlaUNNeEVBIn0=",
-        "org.opencontainers.image.enc.pubopts": "eyJjaXBoZXIiOiJBRVNfMjU2X0NUUl9ITUFDX1NIQTI1NiIsImhtYWMiOiJEWXhlSnM5NjVzUzRrZXM5U0gyRjNTT2VTMmlhczV6d1ZOS083TnYzcVhRPSIsImNpcGhlcm9wdGlvbnMiOnt9fQ=="
-      }
-    },
-```
-
-where the payload of `org.opencontainers.image.enc.keys.jwe` includes the wrapped key and specifications:
-
-```json
-{
-  "protected": "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ",
-  "encrypted_key": "cViuOd27TNlzXNKGqtqg4Y1Xxmcqd9eLYv7szIb-MJzqDJ1qY2mwQmO9Erp5emZN5UbCwv7C1MhccipnIKzitZ8sX1VdGgfZv1rRK-6rHOv5yTV8yI3mIKhsYDf-z_W5bXie546mpYiFUD1qMpINvWt0EfCG-XawzQSJmqX7qDRXoWgxb5p8w1hDxWDFW0L_nLWAy5B8krhE3yLlsufykXNuIf46Cn6LIB8CnshTu0dlWevOEdHx9d0ZN95oUqIpsudYtdY9ZOX-ZZCQRBN_VZGyhcRdJY2BZFinBN1mKjh_L0DRF1OT8xMptf0b88Sl0jXgqiFxJ83XM4ra8Se4Og",
-  "iv": "iTEZRu2K9b5PJnF6",
-  "ciphertext": "OZwiSVFRpaBcM65ZWrlFfAPArrevV-qvJ62Xuv8qTWrKJ24hUQU3GsPz-wI63qEFE-VBDrA7uGbLB1SQF5E6fG9DD87pnMeu1zAIi7VQcIlU2Zt18jhYN7ahDhafhLykhx_v9N3uzl7Hs-KXLOl4y3N_qmEzUOE9IbB5mY6ZZb5vucTjo2qgg5qXIyvnD1_13v6X1n3eDNv0iuXiVw6iRWN3Ck2CQxJ05vmj14z882TIjnmZv-I8JYOqSdb9XQ1inw",
-  "tag": "7O0ypg00ATVm9uDeiCMxEA"
-}
-```
-
-- Verify pulling encrypted vs unencrypted images
-
-Try pulling 'back' the encrypted image to the local docker-daemon with and without encryption
-
-```bash
-$ docker pull localhost:5000/app:server
-Status: Downloaded newer image for localhost:5000/app:server
-localhost:5000/app:server
-
-$ docker pull localhost:5000/app:encrypted
-failed to register layer: Error processing tar file(exit status 1): unexpected EOF
-
-$ docker pull localhost:5000/app:decrypted
-Status: Downloaded newer image for localhost:5000/app:decrypted
-localhost:5000/app:decrypted
-```
-
-- Test Encryption (last layer)
-
-Now do the same as above but encrypt just the last layer
-
-```bash
-cd example/
-export SSL_CERT_FILE=certs/tls-ca-chain.pem
-
-skopeo copy \
-  --encryption-key jwe:./certs/public.pem docker-daemon:app:server  docker://localhost:5000/app:encrypted
-  
-skopeo copy \
-  --decryption-key certs/private.pem docker://localhost:5000/app:encrypted docker://localhost:5000/app:decrypted
-
-skopeo inspect docker://localhost:5000/app:encrypted
-
-crane manifest localhost:5000/app:encrypted | jq '.'
-crane manifest localhost:5000/app:decrypted | jq '.'
-```
-
-Note that the last layer will include encryption attributes:
-
-```json
-{
-  "protected": "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ",
-  "encrypted_key": "LmJHXG7Phd6Mmmi9JrxWtuURtg7iTquIbvEIjcWmpnOB2WCaRwjLqaqbcADYQZEgpHLvVoYWAkY39YVssCeQ0IlaPosE4n1ADjuPzrS8S5w7rNkfBXkUkM8_5ViD9QwWBikb-hsIfA141jMEEEeipWCRuQoPwA3S-ecZJlyiW9XfCQP3eT9MktHS_QHrpPHRmnQMXrnk1HdYHsPSpgPSA3AonooLD1CxCOi1G4sicapiFQhmmQVSx5wxVfS3xs00En6xB31wUqYrujUwd5fcyFyr7HdLeZFR9oaYO56fQyGmjeFsuZTSmRkWWNBUgaflxJIR5F5qZ7bFSKRhEW2kSA",
-  "iv": "IyvBirI825aPOhgD",
-  "ciphertext": "nMKFuLGcUd_uiXX8aEbNSHXu4a2Y60qs-iTmLHqnbFFyck_BbXKDhVnbVNzdn3fHbt5ToMuwClJFwzvw3uCQsB073dv0hCNPUG6xwih3RC9-wvFbjBjdUarkloqBqyGy7R4Tk6-XjRB8wde0ft6zfAnAEhh-js5eLbeodT0PDu0sJ1_kXBNKDa81GUkIUrkSu_BwTkvK8B0c_Az4Vnu4-PHQUq-BjGZT8OsXDD27S1P2mxo22sR3hoAgpRjkSqvjLA",
-  "tag": "sny3PJZqJcA5nzjJkCY3tA"
-}
-```
-
-## Setup Binary OCI KMS provider
-
-First create a KMS Key to use
+Create a KMS Key to use on GCP
 
 ```bash
 export PROJECT_ID=`gcloud config get-value core/project`
@@ -216,7 +64,7 @@ gcloud kms keys add-iam-policy-binding key1    \
      --member="user:$GCLOUD_USER" --role=roles/cloudkms.cryptoKeyEncrypterDecrypter
 ```
 
-- Build plugin
+#### Build plugin
 
 (or download the binary from the "releases" page)
 
@@ -242,28 +90,73 @@ Edit `example/ocicrypt.json` and enter the full path to the binary:
 }
 ```
 
-Then specify the path to this file
+#### Run local Registry
+
+Run a local docker registry just to test (vs docker-daemon)
+
+```bash
+cd example
+
+docker run  -p 5000:5000 -v `pwd`/certs:/certs \
+  -e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/localhost.crt \
+  -e REGISTRY_HTTP_TLS_KEY=/certs/localhost.key  docker.io/registry:2
+```
+
+#### Build and push a test image
+
+Build a small app and push to local reg
+
+```bash
+cd example
+
+docker build -t app:server .
+
+export SSL_CERT_FILE=certs/tls-ca-chain.pem
+skopeo copy   docker-daemon:app:server  docker://localhost:5000/app:server
+```
+
+
+#### Encrypt
+
+In a new shell, specify the path to the config file
 
 ```bash
 export OCICRYPT_KEYPROVIDER_CONFIG=/full/path/to/ocicrypt.json
 ```
 
-Finally test encryption and decryption:
+Then encrypt the last layer
 
 ```bash
-cd example/
-export SSL_CERT_FILE=certs/tls-ca-chain.pem
+export PROJECT_ID=`gcloud config get-value core/project`
 
-
-skopeo copy \
+skopeo copy --encrypt-layer=-1 \
   --encryption-key=provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1 \
-   docker-daemon:app:server docker://localhost:5000/app:encrypted
+   docker://localhost:5000/app:server docker://localhost:5000/app:encrypted
+```
+
+The last layer on the image shjould be encrypted 
+
+```bash
+skopeo inspect docker://localhost:5000/app:encrypted
+```
+
+#### Decrypt
+
+```bash
+export PROJECT_ID=`gcloud config get-value core/project`
 
 skopeo copy \
   --decryption-key=provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1 \
-    docker://localhost:5000/app:encrypted docker://localhost:5000/app:decrypted
+   docker://localhost:5000/app:encrypted docker://localhost:5000/app:decrypted
 ```
 
+Inspect the decrypted image
+
+```bash
+skopeo inspect docker://localhost:5000/app:decrypted
+```
+
+#### Configuring ADC
 
 Finally, you can specify the path GCP `Application Default Credentials` file by setting the startup argument `--adc`.  You can use this setting to direct the GCP encryption to use [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation)
 
@@ -281,6 +174,8 @@ Finally, you can specify the path GCP `Application Default Credentials` file by 
   }
 }
 ```
+
+---
 
 ### Setup gRPC OCI KMS provider
 
@@ -324,7 +219,7 @@ export SSL_CERT_FILE=certs/tls-ca-chain.pem
 
 skopeo copy --encrypt-layer -1 \
   --encryption-key=provider:grpc-keyprovider:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1 \
-   docker-daemon:app:server docker://localhost:5000/app:encrypted
+   docker://localhost:5000/app:server docker://localhost:5000/app:encrypted
 
 skopeo copy --dest-tls-verify=false \
   --decryption-key=provider:grpc-keyprovider:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1 \
