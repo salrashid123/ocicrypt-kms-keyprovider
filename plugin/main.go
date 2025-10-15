@@ -56,22 +56,22 @@ func main() {
 		log.Fatal("decoding input", err)
 	}
 
-	if input.Operation == keyprovider.OpKeyWrap {
+	switch input.Operation {
+	case keyprovider.OpKeyWrap:
 		b, err := WrapKey(input)
 		if err != nil {
 			log.Fatal(err)
 		}
 		fmt.Printf("%s", b)
-	} else if input.Operation == keyprovider.OpKeyUnwrap {
+	case keyprovider.OpKeyUnwrap:
 		b, err := UnwrapKey(input)
 		if err != nil {
 			log.Fatal(err)
 		}
 		fmt.Printf("%s", b)
-	} else {
+	default:
 		log.Fatalf("Operation %v not recognized", input.Operation)
 	}
-	return
 }
 
 func WrapKey(keyP keyprovider.KeyProviderKeyWrapProtocolInput) ([]byte, error) {
