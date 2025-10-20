@@ -14,7 +14,6 @@ import (
 	kms "cloud.google.com/go/kms/apiv1"
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/containers/ocicrypt/keywrap/keyprovider"
-	"google.golang.org/api/option"
 )
 
 const (
@@ -24,6 +23,7 @@ const (
 var (
 	kmsClient *kms.KeyManagementClient
 	adc       = flag.String("adc", "", "Path to ADC file")
+	kmsURI    = flag.String("kmsURI", "", "Path to kms URI")
 )
 
 type annotationPacket struct {
@@ -35,20 +35,19 @@ type annotationPacket struct {
 func main() {
 
 	flag.Parse()
+
 	ctx := context.Background()
 	var err error
-	if *adc == "" {
-		kmsClient, err = kms.NewKeyManagementClient(ctx)
-	} else {
-		dat, err := os.ReadFile(*adc)
-		if err != nil {
-			log.Fatal("decoding input", err)
-		}
-		kmsClient, err = kms.NewKeyManagementClient(ctx, option.WithCredentialsJSON(dat))
+
+	if *adc != "" {
+		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", *adc)
+		//kmsClient, err = kms.NewKeyManagementClient(ctx, option.WithCredentialsFile(*adc))
 	}
+	kmsClient, err = kms.NewKeyManagementClient(ctx)
 	if err != nil {
 		log.Fatal("Error initalizing KMS client", err)
 	}
+	defer kmsClient.Close()
 
 	var input keyprovider.KeyProviderKeyWrapProtocolInput
 	err = json.NewDecoder(os.Stdin).Decode(&input)
@@ -58,12 +57,24 @@ func main() {
 
 	switch input.Operation {
 	case keyprovider.OpKeyWrap:
+		if *kmsURI != "" {
+			myMap := make(map[string][][]byte)
+			myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
+			input.KeyWrapParams.Ec.Parameters = myMap
+		}
+
 		b, err := WrapKey(input)
 		if err != nil {
 			log.Fatal(err)
 		}
 		fmt.Printf("%s", b)
 	case keyprovider.OpKeyUnwrap:
+		if *kmsURI != "" {
+			myMap := make(map[string][][]byte)
+			myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
+			input.KeyUnwrapParams.Dc.Parameters = myMap
+		}
+
 		b, err := UnwrapKey(input)
 		if err != nil {
 			log.Fatal(err)
@@ -78,11 +89,11 @@ func WrapKey(keyP keyprovider.KeyProviderKeyWrapProtocolInput) ([]byte, error) {
 
 	_, ok := keyP.KeyWrapParams.Ec.Parameters[kmsCryptName]
 	if !ok {
-		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+		return nil, errors.New("provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
 	}
 
 	if len(keyP.KeyWrapParams.Ec.Parameters[kmsCryptName]) == 0 {
-		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+		return nil, errors.New("provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
 	}
 
 	kmsURI := string(keyP.KeyWrapParams.Ec.Parameters[kmsCryptName][0])
@@ -90,7 +101,7 @@ func WrapKey(keyP keyprovider.KeyProviderKeyWrapProtocolInput) ([]byte, error) {
 	if strings.HasPrefix(kmsURI, "gcpkms://") {
 		kmsName = strings.TrimPrefix(kmsURI, "gcpkms://")
 	} else {
-		return nil, fmt.Errorf("Unsupported kms prefix %s", kmsURI)
+		return nil, fmt.Errorf("unsupported kms prefix %s", kmsURI)
 	}
 	ctx := context.Background()
 
@@ -104,8 +115,6 @@ func WrapKey(keyP keyprovider.KeyProviderKeyWrapProtocolInput) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// *****************************************
 
 	jsonString, err := json.Marshal(annotationPacket{
 		KeyUrl:     kmsURI,
@@ -135,11 +144,11 @@ func UnwrapKey(keyP keyprovider.KeyProviderKeyWrapProtocolInput) ([]byte, error)
 
 	_, ok := keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName]
 	if !ok {
-		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+		return nil, errors.New("decrypt Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
 	}
 
 	if len(keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName]) == 0 {
-		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+		return nil, errors.New("decrypt Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
 	}
 
 	kmsURI := string(keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName][0])
@@ -147,7 +156,7 @@ func UnwrapKey(keyP keyprovider.KeyProviderKeyWrapProtocolInput) ([]byte, error)
 	if strings.HasPrefix(kmsURI, "gcpkms://") {
 		kmsName = strings.TrimPrefix(kmsURI, "gcpkms://")
 	} else {
-		return nil, fmt.Errorf("Unsupported kms prefix %s", kmsURI)
+		return nil, fmt.Errorf("unsupported kms prefix %s", kmsURI)
 	}
 	ctx := context.Background()
 	client, err := kms.NewKeyManagementClient(ctx)

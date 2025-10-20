@@ -38,9 +38,10 @@ Showing how this works involves a number of steps so its not that much of a quic
 
 install
 
-- [skopeo](https://github.com/containers/skopeo/blob/main/install.md)
-- [crane](https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md)
-- docker
+* [skopeo](https://github.com/containers/skopeo/blob/main/install.md)
+* docker
+* [imgcrypt](https://github.com/containerd/imgcrypt.git)
+* [nerdctl](https://github.com/containerd/nerdctl)
 
 
 #### Setup Binary OCI KMS provider
@@ -61,7 +62,16 @@ gcloud kms keys create key1 --keyring=ocikeyring  --location=global --purpose=en
 # this is unnecessary since you should already have permissions
 gcloud kms keys add-iam-policy-binding key1    \
     --keyring=ocikeyring --location=global \
-     --member="user:$GCLOUD_USER" --role=roles/cloudkms.cryptoKeyEncrypterDecrypter
+     --member="user:$GCLOUD_USER" --role=roles/cloudkms.cryptoKey
+
+## create key if you want to use an adc file
+# gcloud iam service-accounts create kmsclient-svc-account
+# export SA_NAME_EMAIL="kmsclient-svc-account@$PROJECT_ID$.iam.gserviceaccount.com"
+# gcloud iam service-accounts keys create adc.json \
+#     --iam-account=$SA_NAME_EMAIL
+# gcloud kms keys add-iam-policy-binding key1    \
+#     --keyring=ocikeyring --location=global \
+#      --member="serviceAccount:$SA_NAME_EMAIL" --role=roles/cloudkms.cryptoKey
 ```
 
 #### Build plugin
@@ -77,13 +87,15 @@ go build -o /tmp/kms_oci_crypt .
 
 Edit `example/ocicrypt.json` and enter the full path to the binary:
 
+(Remember to edit the file and replace it with your `PROJECT_ID`)
+
 ```json
 {
     "key-providers": {
       "kmscrypt": {
         "cmd": {
           "path": "/tmp/kms_oci_crypt",
-          "args": []
+          "args": ["--kmsURI","gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1"]
         }
       }
     }
@@ -114,15 +126,18 @@ export SSL_CERT_FILE=`pwd`/certs/tls-ca-chain.pem
 
 export PROJECT_ID=`gcloud config get-value core/project`
 
+# add to /etc/hosts
+# 127.0.0.1 registry.domain.com
+
 skopeo copy --encrypt-layer=-1 \
   --encryption-key=provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1 \
-   docker://docker.io/salrashid123/app docker://localhost:5000/app:encrypted
+   docker://docker.io/salrashid123/app docker://registry.domain.com:5000/app:encrypted
 ```
 
 The last layer on the image shjould be encrypted 
 
 ```bash
-skopeo inspect docker://localhost:5000/app:encrypted
+skopeo inspect docker://registry.domain.com:5000/app:encrypted
 ```
 
 ```json
@@ -258,13 +273,13 @@ export PROJECT_ID=`gcloud config get-value core/project`
 
 skopeo copy \
   --decryption-key=provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1 \
-   docker://localhost:5000/app:encrypted docker://localhost:5000/app:decrypted
+   docker://registry.domain.com:5000/app:encrypted docker://registry.domain.com:5000/app:decrypted
 ```
 
 Inspect the decrypted image
 
 ```bash
-skopeo inspect docker://localhost:5000/app:decrypted
+skopeo inspect docker://registry.domain.com:5000/app:decrypted
 ```
 
 #### Configuring ADC
@@ -278,7 +293,8 @@ Finally, you can specify the path GCP `Application Default Credentials` file by 
       "cmd": {
         "path": "/path/to/kms_oci_crypt",
         "args": [
-          "--adc=/path/to/application_default_credentials.json"
+          "--adc", "/path/to/adc.json",
+          "--kmsURI","gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1"          
         ]
       }
     }
@@ -312,7 +328,9 @@ set the `OCICRYPT_KEYPROVIDER_CONFIG` file to use
     "kmscrypt": {
       "cmd": {
         "path": "/path/to/kms_oci_crypt",
-        "args": []
+        "args": [
+          "--kmsURI","gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1"
+        ]
       }
     },
     "grpc-keyprovider": {
@@ -330,10 +348,115 @@ export SSL_CERT_FILE=certs/tls-ca-chain.pem
 
 skopeo copy --encrypt-layer -1 \
   --encryption-key=provider:grpc-keyprovider:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1 \
-   docker://docker.io/salrashid123/app docker://localhost:5000/app:encrypted
+   docker://docker.io/salrashid123/app docker://registry.domain.com:5000/app:encrypted
 
 skopeo copy --dest-tls-verify=false \
   --decryption-key=provider:grpc-keyprovider:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1 \
-    docker://localhost:5000/app:encrypted docker://localhost:5000/app:decrypted
+    docker://registry.domain.com:5000/app:encrypted docker://registry.domain.com:5000/app:decrypted
 ```
 
+
+### Using containerd
+
+To use `containerd` can decrypt and run the image automatically, you first need to configure a stream processor pointing to the decryption functions.
+
+Basically, when containerd detects an encrypted image, it will expect an external process to provide the decrypted image layer.
+
+To do this, we will need [imgcrypt](https://github.com/containerd/imgcrypt.git) installed as well.
+
+As a demo, configure ocicrypt kms to use an `adc` file path (you must first have the json file downloaded and IAM permissions for that service account to decrypt an image)
+
+```bash
+cd example/
+export OCICRYPT_KEYPROVIDER_CONFIG=`pwd`/ocicrypt.json
+export SSL_CERT_FILE=`pwd`/certs/tls-ca-chain.pem
+
+export PROJECT_ID=`gcloud config get-value core/project`
+```
+
+the `ocicrypt.json` file will include `adc=`:
+
+```json
+{
+  "key-providers": {
+    "kmscrypt": {
+      "cmd": {
+        "path": "/tmp/kms_oci_crypt",
+        "args": [
+          "--adc", "/path/to/service_account.json",
+          "--kmsURI","gcpkms://projects/$PROJECT_ID$/locations/global/keyRings/ocikeyring/cryptoKeys/key1"
+        ]
+      }
+    },
+    "grpc-keyprovider": {
+      "grpc": "localhost:50051"
+    }
+  }
+}
+```
+
+* then install [imgcrypt](https://github.com/containerd/imgcrypt.git)
+
+```bash
+git clone git clone https://github.com/containerd/imgcrypt.git
+cd imgcrypt
+make
+sudo make install  ##    install to /usr/local/bin/ctd-decoder
+```
+
+* install [nerdctl](https://github.com/containerd/nerdctl)
+
+
+* build kms_oci_crypt 
+
+```bash
+cd plugin
+go build -o /tmp/kms_oci_crypt .
+```
+
+* encrypt the raw image from dockerhub to your local registry
+
+```bash
+skopeo copy --encrypt-layer=-1 \
+  --encryption-key=provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1 \
+   docker://docker.io/salrashid123/app docker://registry.domain.com:5000/app:encrypted
+```
+
+* start `containerd`
+
+Note, that to avoid conflicts the system's containerd, the config specifies to use the socket and config in the /tmp/ folder:
+
+edit `example/config.toml` the stream processor to point to your config file:
+
+```conf
+[stream_processors]
+  [stream_processors."io.containerd.ocicrypt.decoder.v1.tar.gzip"]
+    accepts = ["application/vnd.oci.image.layer.v1.tar+gzip+encrypted"]
+    returns = "application/vnd.oci.image.layer.v1.tar+gzip"
+    path = "/usr/local/bin/ctd-decoder"
+    env = ["OCICRYPT_KEYPROVIDER_CONFIG=/path/to/ocicrypt-kms-keyprovider/example/ocicrypt.json"]
+       
+  [stream_processors."io.containerd.ocicrypt.decoder.v1.tar"]
+    accepts = ["application/vnd.oci.image.layer.v1.tar+encrypted"]
+    returns = "application/vnd.oci.image.layer.v1.tar"
+    path = "/usr/local/bin/ctd-decoder"
+    env = ["OCICRYPT_KEYPROVIDER_CONFIG=/path/to/ocicrypt-kms-keyprovider/example/ocicrypt.json"]
+```
+
+now start containerd
+
+```bash
+sudo /usr/bin/containerd -c config.toml
+```
+
+*  to run the image
+
+```bash
+### clean all images
+sudo  nerdctl --insecure-registry  --debug-full  --address /tmp/run/containerd/containerd.sock system prune --all
+
+### dun the encrypted image which will get decrypted on the fly
+sudo  nerdctl --insecure-registry  --debug-full \
+   --address /tmp/run/containerd/containerd.sock run -ti \
+    registry.domain.com:5000/app:encrypted
+```

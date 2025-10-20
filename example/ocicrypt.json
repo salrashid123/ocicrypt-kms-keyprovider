@@ -3,7 +3,9 @@
     "kmscrypt": {
       "cmd": {
         "path": "/tmp/kms_oci_crypt",
-        "args": []
+        "args": [     
+          "--kmsURI","gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1"
+        ]
       }
     },
     "grpc-keyprovider": {

@@ -18,13 +18,13 @@ import (
 
 	kms "cloud.google.com/go/kms/apiv1"
 	"cloud.google.com/go/kms/apiv1/kmspb"
-	"google.golang.org/api/option"
 )
 
 var (
 	grpcport  = flag.String("grpcport", ":50051", "grpcport")
 	kmsClient *kms.KeyManagementClient
 	adc       = flag.String("adc", "", "Path to ADC file")
+	kmsURI    = flag.String("kmsURI", "", "Path to kms URI")
 )
 
 const (
@@ -49,6 +49,11 @@ func (*server) WrapKey(ctx context.Context, request *keyproviderpb.KeyProviderKe
 		return nil, err
 	}
 
+	if *kmsURI != "" {
+		myMap := make(map[string][][]byte)
+		myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
+		keyP.KeyWrapParams.Ec.Parameters = myMap
+	}
 	_, ok := keyP.KeyWrapParams.Ec.Parameters[kmsCryptName]
 	if !ok {
 		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
@@ -107,6 +112,12 @@ func (*server) UnWrapKey(ctx context.Context, request *keyproviderpb.KeyProvider
 	//kmsURI := apkt.KeyUrl
 	ciphertext := apkt.WrappedKey
 
+	if *kmsURI != "" {
+		myMap := make(map[string][][]byte)
+		myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
+		keyP.KeyUnwrapParams.Dc.Parameters = myMap
+	}
+
 	_, ok := keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName]
 	if !ok {
 		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
@@ -154,15 +165,13 @@ func main() {
 
 	ctx := context.Background()
 	var err error
-	if *adc == "" {
-		kmsClient, err = kms.NewKeyManagementClient(ctx)
-	} else {
-		dat, err := os.ReadFile(*adc)
-		if err != nil {
-			log.Fatal("decoding input", err)
-		}
-		kmsClient, err = kms.NewKeyManagementClient(ctx, option.WithCredentialsJSON(dat))
+
+	if *adc != "" {
+		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", *adc)
+		//kmsClient, err = kms.NewKeyManagementClient(ctx, option.WithCredentialsFile(*adc))
 	}
+
+	kmsClient, err = kms.NewKeyManagementClient(ctx)
 	if err != nil {
 		log.Fatal("Error initializing KMS client", err)
 	}
@@ -171,6 +180,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
+
+	if *kmsURI == "" {
+		log.Fatal("--kmsURI must be set")
+	}
+
+	myMap := make(map[string][][]byte)
+	myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
 
 	sopts := []grpc.ServerOption{grpc.MaxConcurrentStreams(10)}
 	sopts = append(sopts)
