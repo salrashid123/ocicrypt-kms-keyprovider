@@ -460,3 +460,27 @@ sudo  nerdctl --insecure-registry  --debug-full \
    --address /tmp/run/containerd/containerd.sock run -ti \
     registry.domain.com:5000/app:encrypted
 ```
+
+
+### DebugLog
+
+If you want to enable debug logs for the keyprovider, just set the `--debugLog` parameter
+
+```json
+{
+  "key-providers": {
+    "kmscrypt": {
+      "cmd": {
+        "path": "/tmp/kms_oci_crypt",
+        "args": [   
+          "--debugLog", "/tmp/debug.log",  
+          "--kmsURI","gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1"
+        ]
+      }
+    },
+    "grpc-keyprovider": {
+      "grpc": "localhost:50051"
+    }
+  }
+}
+```

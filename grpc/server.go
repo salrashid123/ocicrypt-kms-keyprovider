@@ -49,18 +49,21 @@ func (*server) WrapKey(ctx context.Context, request *keyproviderpb.KeyProviderKe
 		return nil, err
 	}
 
+	// if the user specified it in command line, set that as the parameter value
 	if *kmsURI != "" {
-		myMap := make(map[string][][]byte)
-		myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
-		keyP.KeyWrapParams.Ec.Parameters = myMap
+		if len(keyP.KeyWrapParams.Ec.Parameters) == 0 {
+			keyP.KeyWrapParams.Ec.Parameters = make(map[string][][]byte)
+		}
+		keyP.KeyWrapParams.Ec.Parameters[kmsCryptName] = [][]byte{[]byte(*kmsURI)}
 	}
+
 	_, ok := keyP.KeyWrapParams.Ec.Parameters[kmsCryptName]
 	if !ok {
-		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+		return nil, errors.New("provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
 	}
 
 	if len(keyP.KeyWrapParams.Ec.Parameters[kmsCryptName]) == 0 {
-		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+		return nil, errors.New("provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
 	}
 
 	kmsURI := string(keyP.KeyWrapParams.Ec.Parameters[kmsCryptName][0])
@@ -68,7 +71,7 @@ func (*server) WrapKey(ctx context.Context, request *keyproviderpb.KeyProviderKe
 	if strings.HasPrefix(kmsURI, "gcpkms://") {
 		kmsName = strings.TrimPrefix(kmsURI, "gcpkms://")
 	} else {
-		return nil, fmt.Errorf("Unsupported kms prefix %s", kmsURI)
+		return nil, fmt.Errorf("unsupported kms prefix %s", kmsURI)
 	}
 
 	req := &kmspb.EncryptRequest{
@@ -109,30 +112,37 @@ func (*server) UnWrapKey(ctx context.Context, request *keyproviderpb.KeyProvider
 	if err != nil {
 		return nil, err
 	}
-	//kmsURI := apkt.KeyUrl
-	ciphertext := apkt.WrappedKey
 
+	// if the user specified it in command line, set that as the parameter value
 	if *kmsURI != "" {
-		myMap := make(map[string][][]byte)
-		myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
-		keyP.KeyUnwrapParams.Dc.Parameters = myMap
+		if len(keyP.KeyUnwrapParams.Dc.Parameters) == 0 {
+			keyP.KeyUnwrapParams.Dc.Parameters = make(map[string][][]byte)
+		}
+		keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName] = [][]byte{[]byte(*kmsURI)}
 	}
+
+	ciphertext := apkt.WrappedKey
 
 	_, ok := keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName]
 	if !ok {
-		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+		return nil, errors.New("provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
 	}
 
 	if len(keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName]) == 0 {
-		return nil, errors.New("Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+		return nil, errors.New("provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
 	}
 
-	kmsURI := string(keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName][0])
+	ku := string(keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName][0])
+
+	if ku != apkt.KeyUrl {
+		return nil, fmt.Errorf("kmsURI parameter and keyURL in structure are different parameter [%s], keyURL [%s]", kmsURI, apkt.KeyUrl)
+	}
+
 	kmsName := ""
-	if strings.HasPrefix(kmsURI, "gcpkms://") {
-		kmsName = strings.TrimPrefix(kmsURI, "gcpkms://")
+	if strings.HasPrefix(ku, "gcpkms://") {
+		kmsName = strings.TrimPrefix(ku, "gcpkms://")
 	} else {
-		return nil, fmt.Errorf("Unsupported kms prefix %s", kmsURI)
+		return nil, fmt.Errorf("ynsupported kms prefix %s", ku)
 	}
 
 	client, err := kms.NewKeyManagementClient(ctx)

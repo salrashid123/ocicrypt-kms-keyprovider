@@ -23,6 +23,7 @@ const (
 var (
 	kmsClient *kms.KeyManagementClient
 	adc       = flag.String("adc", "", "Path to ADC file")
+	debugLog  = flag.String("debugLog", "", "Path to debuglog")
 	kmsURI    = flag.String("kmsURI", "", "Path to kms URI")
 )
 
@@ -38,6 +39,16 @@ func main() {
 
 	ctx := context.Background()
 	var err error
+
+	if *debugLog != "" {
+		file, err := os.OpenFile(*debugLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+		if err != nil {
+			log.Printf("error opening log file: %v", err)
+		}
+		defer file.Close()
+		log.SetOutput(file)
+		log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+	}
 
 	if *adc != "" {
 		os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", *adc)
@@ -57,10 +68,13 @@ func main() {
 
 	switch input.Operation {
 	case keyprovider.OpKeyWrap:
+
+		// if the user specified it in command line, set that as the parameter value
 		if *kmsURI != "" {
-			myMap := make(map[string][][]byte)
-			myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
-			input.KeyWrapParams.Ec.Parameters = myMap
+			if len(input.KeyWrapParams.Ec.Parameters) == 0 {
+				input.KeyWrapParams.Ec.Parameters = make(map[string][][]byte)
+			}
+			input.KeyWrapParams.Ec.Parameters[kmsCryptName] = [][]byte{[]byte(*kmsURI)}
 		}
 
 		b, err := WrapKey(input)
@@ -69,10 +83,13 @@ func main() {
 		}
 		fmt.Printf("%s", b)
 	case keyprovider.OpKeyUnwrap:
+
+		// if the user specified it in command line, set that as the parameter value
 		if *kmsURI != "" {
-			myMap := make(map[string][][]byte)
-			myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
-			input.KeyUnwrapParams.Dc.Parameters = myMap
+			if len(input.KeyUnwrapParams.Dc.Parameters) == 0 {
+				input.KeyUnwrapParams.Dc.Parameters = make(map[string][][]byte)
+			}
+			input.KeyUnwrapParams.Dc.Parameters[kmsCryptName] = [][]byte{[]byte(*kmsURI)}
 		}
 
 		b, err := UnwrapKey(input)
@@ -139,19 +156,29 @@ func UnwrapKey(keyP keyprovider.KeyProviderKeyWrapProtocolInput) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	//kmsURI := apkt.KeyUrl
+
+	// load up the keyURL if its in the packet
+	kmsURI := apkt.KeyUrl
 	ciphertext := apkt.WrappedKey
 
+	// now load it from the parameter; the paramater has the saved value the user specified in the commandline args
+	//  the parameter value should take precedent over apkt.KeyUrl
 	_, ok := keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName]
-	if !ok {
-		return nil, errors.New("decrypt Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+	if ok {
+		if len(keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName]) == 0 && apkt.KeyUrl == "" {
+			return nil, errors.New("decrypt Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+		}
+		kmsURI = string(keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName][0])
 	}
 
-	if len(keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName]) == 0 {
-		return nil, errors.New("decrypt Provider must be formatted as provider:kmscrypt:gcpkms://projects/$PROJECT_ID/locations/global/keyRings/[keyring]/cryptoKeys/[key]/cryptoKeyVersions/1")
+	if kmsURI == "" {
+		return nil, errors.New("kmsURI cannot be nil")
 	}
 
-	kmsURI := string(keyP.KeyUnwrapParams.Dc.Parameters[kmsCryptName][0])
+	if kmsURI != apkt.KeyUrl {
+		return nil, fmt.Errorf("kmsURI parameter and keyURL in structure are different parameter [%s], keyURL [%s]", kmsURI, apkt.KeyUrl)
+	}
+
 	kmsName := ""
 	if strings.HasPrefix(kmsURI, "gcpkms://") {
 		kmsName = strings.TrimPrefix(kmsURI, "gcpkms://")
