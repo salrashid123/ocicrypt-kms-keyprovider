@@ -142,7 +142,7 @@ func (*server) UnWrapKey(ctx context.Context, request *keyproviderpb.KeyProvider
 	if strings.HasPrefix(ku, "gcpkms://") {
 		kmsName = strings.TrimPrefix(ku, "gcpkms://")
 	} else {
-		return nil, fmt.Errorf("ynsupported kms prefix %s", ku)
+		return nil, fmt.Errorf("unsupported kms prefix %s", ku)
 	}
 
 	client, err := kms.NewKeyManagementClient(ctx)

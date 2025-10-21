@@ -317,7 +317,8 @@ To use, start the server
 ```bash
 cd grpc
 
-go run server.go
+go run server.go --adc="/path/tp/service_account.json" \
+   --kmsURI="gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1"
 ```
 
 set the `OCICRYPT_KEYPROVIDER_CONFIG` file to use
