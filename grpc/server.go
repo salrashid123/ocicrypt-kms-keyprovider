@@ -195,9 +195,6 @@ func main() {
 		log.Fatal("--kmsURI must be set")
 	}
 
-	myMap := make(map[string][][]byte)
-	myMap["kmscrypt"] = [][]byte{[]byte(*kmsURI)}
-
 	sopts := []grpc.ServerOption{grpc.MaxConcurrentStreams(10)}
 	sopts = append(sopts)
 

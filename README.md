@@ -326,14 +326,6 @@ set the `OCICRYPT_KEYPROVIDER_CONFIG` file to use
 ```json
 {
   "key-providers": {
-    "kmscrypt": {
-      "cmd": {
-        "path": "/path/to/kms_oci_crypt",
-        "args": [
-          "--kmsURI","gcpkms://projects/$PROJECT_ID/locations/global/keyRings/ocikeyring/cryptoKeys/key1"
-        ]
-      }
-    },
     "grpc-keyprovider": {
       "grpc": "localhost:50051"
     }
