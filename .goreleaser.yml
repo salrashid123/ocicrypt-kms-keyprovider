@@ -8,8 +8,7 @@ release:
   name_template: '{{.Tag}}'
   extra_files:
 builds:
-  - id: ocicrypt-tpm-keyprovider
-    main: plugin
+  - id: ocicrypt-kms-keyprovider
     goos:
       - linux
       - darwin

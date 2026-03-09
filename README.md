@@ -79,7 +79,6 @@ gcloud kms keys add-iam-policy-binding key1    \
 (or download the binary from the "releases" page)
 
 ```bash
-cd plugin
 go build -o /tmp/kms_oci_crypt .
 ```
 
