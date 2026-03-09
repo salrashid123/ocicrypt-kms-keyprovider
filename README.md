@@ -402,7 +402,6 @@ sudo make install  ##    install to /usr/local/bin/ctd-decoder
 * build kms_oci_crypt 
 
 ```bash
-cd plugin
 go build -o /tmp/kms_oci_crypt .
 ```
 
